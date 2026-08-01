@@ -4,10 +4,12 @@ Sistema de apoio operacional com IA para equipes de patrulhamento —
 memória operacional da guarnição: abordagens, ocorrências, reconhecimento
 facial, OCR de placas, análise geoespacial.
 
-> **Este é um repositório de portfólio.** O código-fonte real roda em
-> produção num repositório privado. Aqui há apenas documentação de
-> arquitetura e decisões técnicas — sem código, credenciais, dados
-> operacionais ou lógica de segurança do sistema.
+> **Este é um repositório de portfólio.** O sistema completo roda em
+> produção num repositório privado. Aqui há documentação de arquitetura,
+> decisões técnicas e uma seleção de código real do projeto — sem
+> credenciais, dados operacionais, ou qualquer trecho de autenticação,
+> permissões, criptografia ou multi-tenancy (a parte sensível do sistema
+> fica de fora, por decisão deliberada).
 
 ## O problema
 
@@ -28,9 +30,10 @@ não gera informação nova.
 - Conformidade LGPD: criptografia, trilha de auditoria, retenção
   controlada
 
-Ver [ARCHITECTURE.md](ARCHITECTURE.md) para a arquitetura do sistema e
+Ver [ARCHITECTURE.md](ARCHITECTURE.md) para a arquitetura do sistema,
 [TECH-HIGHLIGHTS.md](TECH-HIGHLIGHTS.md) para os problemas de engenharia
-mais interessantes resolvidos no projeto.
+mais interessantes resolvidos no projeto, e
+[code-samples/](code-samples/) para trechos de código real.
 
 ## Stack
 

@@ -1,7 +1,9 @@
 # Destaques técnicos
 
 Alguns dos problemas de engenharia mais interessantes resolvidos no
-projeto. Descrição conceitual, sem código (ver nota no README).
+projeto. Onde faz sentido, linko o código real em
+[code-samples/](code-samples/) — o resto é descrição conceitual (ver nota
+de segurança no README sobre o que fica de fora).
 
 ## Busca híbrida num único banco
 
@@ -20,7 +22,10 @@ O requisito operacional era cadastrar uma abordagem em menos de 40
 segundos — e no campo, sinal de dados não é garantido. A solução foi um
 PWA offline-first: os dados entram em IndexedDB local imediatamente, e a
 sincronização com o servidor acontece em background assim que a conexão
-volta, sem bloquear o fluxo de quem está cadastrando.
+volta, sem bloquear o fluxo de quem está cadastrando. Código real:
+[`code-samples/frontend/sync.js`](code-samples/frontend/sync.js) — trata
+fila de pendências, retry, e um caso específico (abordagem com fotos)
+que precisa de um fluxo diferente do batch simples.
 
 ## Pipeline de IA assíncrono
 
@@ -29,7 +34,8 @@ rodar no caminho síncrono de uma requisição HTTP. Essas tarefas vão para
 uma fila (Redis + `arq`) e são processadas por workers separados da API —
 a guarnição recebe a confirmação do cadastro na hora, e o enriquecimento
 por IA acontece em paralelo, sem travar a experiência de quem está em
-campo.
+campo. Um exemplo mais simples do mesmo princípio (async + cache Redis)
+em código real: [`code-samples/backend/embedding_service.py`](code-samples/backend/embedding_service.py).
 
 ## Observabilidade como código
 
