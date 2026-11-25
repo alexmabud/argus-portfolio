@@ -74,6 +74,7 @@ Medidos no repositório privado (novembro/2026):
 | Como o sistema é montado | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Engenharia de IA** (modelos em produção, regressão, avaliação, custo, privacidade) | [docs/ai-engineering.md](docs/ai-engineering.md) |
 | **Argus Trace**: orquestrador de LLM com ferramentas seguras + grafo | [docs/argus-trace.md](docs/argus-trace.md) |
+| **RAG**: decisões de recuperação, embeddings, citação e avaliação | [docs/rag-decisoes.md](docs/rag-decisoes.md) |
 | Os problemas de engenharia mais interessantes | [TECH-HIGHLIGHTS.md](TECH-HIGHLIGHTS.md) |
 | Como o trabalho é conduzido (testes, CI, deploy, backup) | [docs/engineering-practices.md](docs/engineering-practices.md) |
 | Incidentes reais e o que mudou depois deles | [docs/lessons-learned.md](docs/lessons-learned.md) |
@@ -119,6 +120,31 @@ O que o design resolve, e onde ler:
 A IA continua obedecendo a regra do projeto: só organiza dados existentes,
 nunca inventa fatos. Status exato por tarefa em
 [docs/argus-trace.md](docs/argus-trace.md).
+
+## RAG no Argus Trace: decisões
+
+O Trace responde **fundamentando cada resposta em dados recuperados do
+próprio banco** (*retrieval-augmented generation*), com a recuperação feita
+por **ferramentas que o modelo chama** — *agentic RAG* — e não por trechos
+colados no prompt. As decisões, com alternativas descartadas e o porquê,
+estão em [docs/rag-decisoes.md](docs/rag-decisoes.md). As principais:
+
+| Etapa | Decisão |
+|---|---|
+| **Recuperação** | Busca **híbrida** (palavra-chave `pg_trgm` + significado), porque só vetorial falha em nomes, apelidos e códigos exatos |
+| **Embeddings** | **Locais** (MiniLM multilíngue, 384-d, no worker): o texto das observações nunca sai do servidor para ser indexado |
+| **Armazenamento** | **pgvector no mesmo PostgreSQL**, índice HNSW: similaridade + filtros relacionais na mesma query, sem banco vetorial externo |
+| **Granularidade** | Um vetor por registro (notas curtas); PDFs longos são fonte **secundária e rotulada** |
+| **Frescor** | Embedding atualizado a cada edição (worker) + backfill |
+| **O que volta** | **Pessoas e registros com ID e link**, em tabelas pequenas e já agregadas — nunca o banco bruto |
+| **Geração** | Cada afirmação cita IDs; o **código confere** contra o recuperado e **descarta o que não tem fonte** |
+| **Segurança** | Texto recuperado é *dado*, não instrução (prompt injection indireto); ferramentas só de leitura |
+| **Privacidade** | LLM recebe códigos ("P12") no lugar de nomes; sem CPF/endereço; foto nunca sai |
+| **Avaliação** | Recuperação e geração medidas **separadamente**, incluindo perguntas **sem resposta** |
+| **Resiliência** | Roteamento foto → SQL → LLM e fallback sem IA: a recuperação funciona sem o LLM |
+
+> Status: design fechado, implementação em curso (ver
+> [docs/argus-trace.md](docs/argus-trace.md)).
 
 ## Sobre
 

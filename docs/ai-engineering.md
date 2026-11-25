@@ -17,7 +17,7 @@ vem dessa frase.
 | Embeddings de texto | SentenceTransformers MiniLM multilíngue, 384-d, cache em Redis | Servidor próprio | **Em produção** (ocorrências); estendido às observações no Trace |
 | Busca vetorial | PostgreSQL + pgvector, índices HNSW | Banco próprio | **Em produção** |
 | Pipeline assíncrono de IA | Fila `arq` sobre Redis, 2 workers, métricas de fila | Servidor próprio | **Em produção** |
-| Busca híbrida (palavra-chave + significado) | `pg_trgm` + pgvector | Banco próprio | Projetada; embeddings novos em construção (Trace, grupo C) |
+| RAG sobre o banco (recuperação híbrida + geração com citação validada) | `pg_trgm` + pgvector + LLM por *tool calling* | Banco próprio + API do provedor | Decisões fechadas ([rag-decisoes.md](rag-decisoes.md)); em construção (Trace, grupos C e D) |
 | Orquestrador de chat | Claude via API (tool calling), ferramentas só de leitura | API do provedor | Projetado em detalhe (Trace, grupo D) |
 | Grafo de vínculos | BFS em lote sobre 3 fontes de aresta | Backend | 1ª fatia implementada (vizinhança); caminho mais curto a seguir |
 
@@ -161,6 +161,7 @@ e o processo é tratado como engenharia, não como improviso:
 
 | Competência | Evidência neste repositório |
 |---|---|
+| RAG: recuperação híbrida, citação verificada, avaliação separada | [rag-decisoes.md](rag-decisoes.md) |
 | Embeddings e busca vetorial em produção | [ADR 002](adr/002-pgvector-embeddings.md), [`embedding_service.py`](../code-samples/backend/embedding_service.py), [`face_service.py`](../code-samples/backend/face_service.py) |
 | Inferência em CPU e latência | Warm-up, lock inter-processo, carga em thread ([lição 4](lessons-learned.md)) |
 | MLOps: regressão de modelo e versionamento | Baseline de modelos entre versões de biblioteca (acima) |

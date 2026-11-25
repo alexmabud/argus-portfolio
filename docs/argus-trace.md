@@ -268,7 +268,8 @@ mitigações são obrigatórias e testadas:
 - Fase 2 (futura): cadastro conversado — a IA só extrai campos, o código
   valida e grava após confirmação. Fase 3: demais cadastros, mesma regra.
 
-Visão mais ampla de IA no projeto em [ai-engineering.md](ai-engineering.md);
+As decisões de RAG (recuperação, embeddings, citação, avaliação) estão em
+[rag-decisoes.md](rag-decisoes.md). Visão mais ampla de IA em [ai-engineering.md](ai-engineering.md);
 decisões em [ADR 006](adr/006-orquestrador-llm-ferramentas-somente-leitura.md),
 [ADR 007](adr/007-roteamento-ia-so-quando-necessaria.md) e
 [ADR 008](adr/008-privacidade-pseudonimizacao-llm.md).
