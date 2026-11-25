@@ -60,6 +60,9 @@ Medidos no repositório privado (novembro/2026):
   com UPSERT e frequência/histórico de cada vínculo.
 - **Ficha da pessoa em PDF** com marca d'água rastreável, gerada em
   background.
+- **Argus Trace (em construção)**: chat em linguagem natural sobre a base
+  inteira, com orquestração por LLM e grafo de vínculos — ver
+  [docs/argus-trace.md](docs/argus-trace.md).
 - **Conformidade LGPD**: criptografia em repouso, trilha de auditoria,
   exclusão lógica e retenção controlada.
 - **Painel analítico e relatórios** com mapa de contadores por região.
@@ -69,6 +72,8 @@ Medidos no repositório privado (novembro/2026):
 | Se você quer ver… | Vá para |
 |---|---|
 | Como o sistema é montado | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Engenharia de IA** (modelos em produção, regressão, avaliação, custo, privacidade) | [docs/ai-engineering.md](docs/ai-engineering.md) |
+| **Argus Trace**: orquestrador de LLM com ferramentas seguras + grafo | [docs/argus-trace.md](docs/argus-trace.md) |
 | Os problemas de engenharia mais interessantes | [TECH-HIGHLIGHTS.md](TECH-HIGHLIGHTS.md) |
 | Como o trabalho é conduzido (testes, CI, deploy, backup) | [docs/engineering-practices.md](docs/engineering-practices.md) |
 | Incidentes reais e o que mudou depois deles | [docs/lessons-learned.md](docs/lessons-learned.md) |
@@ -83,7 +88,7 @@ Medidos no repositório privado (novembro/2026):
 | Backend | Python 3.14 (3.11+ suportado) · FastAPI · SQLAlchemy 2.0 async · Alembic · Pydantic v2 · Gunicorn |
 | Banco | PostgreSQL 16 com pgvector, PostGIS e pg_trgm |
 | Filas e cache | Redis · `arq` (workers assíncronos) |
-| IA | SentenceTransformers (busca semântica multilíngue, 384 dim) · InsightFace `buffalo_l` (rosto, 512 dim) |
+| IA | SentenceTransformers (busca semântica multilíngue, 384 dim) · InsightFace `buffalo_l` (rosto, 512 dim) · pgvector HNSW · Claude via API com *tool calling* (Trace, em construção) |
 | Frontend | PWA sem build step: HTML · Alpine.js · CSS próprio (design system escuro) · IndexedDB (Dexie) · Service Worker |
 | Storage | S3-compatível (MinIO) |
 | Observabilidade | Prometheus · Grafana · blackbox exporter · alertas no Telegram · watchdog independente |
@@ -91,13 +96,29 @@ Medidos no repositório privado (novembro/2026):
 | Segurança no CI | Bandit · pip-audit · TruffleHog · revisão de segurança automática em PR |
 | Entrega | Docker Compose · GitHub Actions · deploy self-hosted (Oracle Cloud) · backup em 3 camadas |
 
-## Em andamento
+## Em andamento: Argus Trace
 
-**Argus Trace** — chat em linguagem natural sobre a base inteira, com
-abertura de um grafo de vínculos entre pessoas. Especificação fechada;
-a construção segue em fatias verticais pequenas (cada uma com critério de
-aceite e verificação próprios). A IA só orquestra consultas e organiza
-resultados de dados já existentes — mantendo a regra "nunca inventa fatos".
+Chat em linguagem natural que consulta toda a base e abre a **teia de
+vínculos** entre pessoas. Design fechado (spec v3, 23 tarefas verticais);
+**as duas primeiras fatias do grafo já estão implementadas e testadas** e a
+parte de IA vem depois, na ordem definida.
+
+O que o design resolve, e onde ler:
+
+- **IA só quando necessária** — roteamento em cascata foto → SQL → LLM,
+  com fallback sem IA ([ADR 007](docs/adr/007-roteamento-ia-so-quando-necessaria.md)).
+- **Agente seguro** — *tool calling* com ferramentas só de leitura,
+  citação de fontes **validada pelo código** e grafo que vem do código, não
+  da IA ([ADR 006](docs/adr/006-orquestrador-llm-ferramentas-somente-leitura.md)).
+- **Privacidade** — minimização, pseudonimização, máscara, conversa efêmera
+  ([ADR 008](docs/adr/008-privacidade-pseudonimizacao-llm.md)).
+- **Custo** — teto de gasto em 3 camadas e modelo escolhido por avaliação.
+- **Avaliação** — testes com cliente simulado, ~50 perguntas sintéticas
+  (incluindo "sem resposta") e medição de recuperação.
+
+A IA continua obedecendo a regra do projeto: só organiza dados existentes,
+nunca inventa fatos. Status exato por tarefa em
+[docs/argus-trace.md](docs/argus-trace.md).
 
 ## Sobre
 

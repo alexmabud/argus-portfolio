@@ -59,6 +59,41 @@ confirmação do cadastro na hora, e o enriquecimento acontece em paralelo.
   [`interprocess_lock.py`](code-samples/backend/interprocess_lock.py)
   (com [testes](code-samples/tests/test_interprocess_lock.py)).
 
+## Regressão de modelos de IA entre versões de biblioteca
+
+Atualizar `torch`, `onnxruntime` ou `insightface` pode mudar em silêncio o
+que o modelo produz — e os vetores já gravados ficariam incomparáveis.
+Existe um **baseline de modelos**: fixtures sem dado real (frases
+sintéticas e imagens de domínio público, incluindo uma fixture negativa
+"sem rosto"), capturado na imagem de produção, que **falha** se o cosseno
+do rosto cair abaixo de 0,999, o do texto abaixo de 0,9999 ou se um rosto
+deixar de ser detectado. Mais em [docs/ai-engineering.md](docs/ai-engineering.md).
+
+## Agente de IA com ferramentas só de leitura (Trace)
+
+Um chat que responde perguntas compostas e imprevistas, sem dar ao modelo
+SQL livre. O LLM orquestra um **catálogo pequeno de ferramentas
+combináveis**; cada afirmação da resposta cita IDs de origem que o
+**código confere** contra o que as ferramentas devolveram — afirmação sem
+fonte é descartada, e a teia do grafo é saída de ferramenta (a IA não
+consegue inventar uma aresta). Antes de chamar o LLM, um roteamento em
+cascata resolve foto, placa, CPF e nomes curtos sem IA; com a API fora ou o
+orçamento estourado, tudo isso continua funcionando. Design completo em
+[docs/argus-trace.md](docs/argus-trace.md) e nos ADRs
+[006](docs/adr/006-orquestrador-llm-ferramentas-somente-leitura.md),
+[007](docs/adr/007-roteamento-ia-so-quando-necessaria.md) e
+[008](docs/adr/008-privacidade-pseudonimizacao-llm.md).
+
+## Grafo de vínculos: "parcial" nunca vira "sem conexão"
+
+Caminho mais curto entre duas pessoas sobre três fontes de aresta, com BFS
+que busca vizinhos **em lote por nível**. Quando um freio de tempo ou de
+nós dispara, a resposta é `parcial` — **nunca** "sem conexão", porque dizer
+que não há caminho quando a busca só foi interrompida seria uma afirmação
+falsa. A primeira fatia (vizinhança) também ensinou uma lição concreta:
+carregar a entidade inteira disparava 38–49 consultas por requisição; a
+correção foi travada com um teste que conta consultas.
+
 ## Vínculos entre pessoas materializados com UPSERT
 
 "Com quem fulano costuma andar?" não é recalculado a cada consulta. Cada

@@ -159,6 +159,17 @@ Alertas de produção são código, não configuração solta:
   ([`watchdog.py`](code-samples/monitoring/watchdog.py)).
 - **Relatório diário** no Telegram com o resumo de saúde do sistema.
 
+## Argus Trace (em construção)
+
+Uma camada nova sobre os mesmos componentes: um **chat com roteamento em
+cascata** (rosto → SQL → LLM) e um **orquestrador de LLM com ferramentas
+só de leitura** que consulta o PostgreSQL por serviços já existentes,
+mais um **grafo de vínculos** calculado no backend. O contexto da conversa
+vive só em Redis, com validade curta. O LLM é acessado por uma interface
+(`LLMClient`) e nunca recebe CPF, endereço completo ou imagens. Detalhes em
+[docs/argus-trace.md](docs/argus-trace.md) e
+[docs/ai-engineering.md](docs/ai-engineering.md).
+
 ## Entrega e recuperação
 
 - **CI**: lint (ruff, mypy), testes com Postgres+pgvector+PostGIS e Redis
