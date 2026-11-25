@@ -1,0 +1,313 @@
+# Testes unitários de comportamento das regras de alerta (promtool test rules).
+#
+# As regras testadas aqui NÃO são escritas neste arquivo: são geradas por
+# monitoring/tests/build_promtool_rules.py a partir do provisioning real do
+# Grafana (monitoring/grafana/provisioning/alerting/rules.yml). Assim o teste
+# não pode divergir de produção — se a expressão mudar lá, o teste roda contra
+# a expressão nova.
+#
+# Cada caso abaixo corresponde a um modo de falha que JÁ aconteceu em produção
+# (ou que a auditoria de 2026-07-28 mostrou ser possível). O objetivo não é
+# cobrir todas as regras, é travar as que sangraram.
+
+rule_files:
+  - generated_rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ─────────────────────────────────────────────────────────────────
+  # alert-worker-parado
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: worker morto com Redis de pé dispara o alerta
+    input_series:
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 1x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 0x40
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: 1x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_worker_parado
+        exp_alerts:
+          - exp_labels: {}
+
+  - interval: 30s
+    name: todos os workers vivos não dispara
+    input_series:
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 1x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 1x40
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: 1x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_worker_parado
+        exp_alerts: []
+
+  - interval: 30s
+    name: Redis fora não co-dispara worker parado (worker_health é fail-closed)
+    input_series:
+      # app/core/worker_health.py marca TODOS os workers como 0 quando não
+      # consegue falar com o Redis — sem o fator redis_up este cenário viraria
+      # um segundo alerta pelo mesmo incidente, desviando o diagnóstico.
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 0x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 0x40
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: 0x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_worker_parado
+        exp_alerts: []
+
+  - interval: 30s
+    name: redis-exporter morto com workers vivos não dispara worker parado
+    input_series:
+      # Auditoria 2026-07-28: com `* on() (redis_up == bool 1)`, sumir com a
+      # série redis_up (exporter morto / scrape falhando) esvaziava a expressão
+      # INTEIRA. Vazio + noDataState:Alerting = "Worker arq parado" no Telegram
+      # com os dois workers saudáveis — repetição do incidente de 2026-07-15.
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 1x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 1x40
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: 1x4 _x40
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: alert_worker_parado
+        exp_alerts: []
+
+  - interval: 30s
+    name: redis-exporter morto ainda detecta worker realmente parado
+    input_series:
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 1x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 0x40
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: 1x4 _x40
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: alert_worker_parado
+        exp_alerts:
+          - exp_labels: {}
+
+  # ─────────────────────────────────────────────────────────────────
+  # alert-taxa-erros — guarda de NaN com tráfego baixo
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: janela sem tráfego nenhum não vira NaN nem dispara taxa de erros
+    input_series:
+      # Achado 2026-07-07: sum(rate(total[5m])) == 0 fazia a divisão virar
+      # 0/0 == NaN, e o avaliador de threshold do Grafana trata NaN como se
+      # satisfizesse "gt" — alerta disparado com "(atual: NaN%)".
+      - series: 'http_requests_total{handler="/api/v1/pessoas",method="GET",status="200"}'
+        values: 100x40
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: alert_taxa_erros
+        exp_alerts: []
+
+  - interval: 30s
+    name: 50 por cento de erros com tráfego real dispara
+    input_series:
+      - series: 'http_requests_total{handler="/api/v1/pessoas",method="GET",status="200"}'
+        values: 0+1x40
+      - series: 'http_requests_total{handler="/api/v1/pessoas",method="GET",status="500"}'
+        values: 0+1x40
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: alert_taxa_erros
+        exp_alerts:
+          - exp_labels: {}
+
+  # ─────────────────────────────────────────────────────────────────
+  # alert-latencia-alta — guarda de NaN por handler + buckets acima de 1s
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: handler ocioso não entra no resultado (histograma todo-zero é NaN)
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/ocioso",method="GET",le="0.1"}'
+        values: 5x60
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/ocioso",method="GET",le="+Inf"}'
+        values: 5x60
+      - series: 'http_requests_total{handler="/api/v1/ocioso",method="GET",status="200"}'
+        values: 5x60
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: alert_latencia_alta
+        exp_alerts: []
+
+  - interval: 30s
+    name: p95 de dezenas de segundos dispara e nomeia o handler culpado
+    input_series:
+      # Achado 2026-07-28 (PR #121): com os buckets default da lib (0.1/0.5/1),
+      # histogram_quantile saturava em 1s e este alerta (>5s) era
+      # matematicamente incapaz de disparar. Só passa com buckets até 60s.
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/fotos/buscar-rosto",method="POST",le="0.1"}'
+        values: 0x40
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/fotos/buscar-rosto",method="POST",le="1.0"}'
+        values: 0x40
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/fotos/buscar-rosto",method="POST",le="30.0"}'
+        values: 0+1x40
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/fotos/buscar-rosto",method="POST",le="60.0"}'
+        values: 0+1x40
+      - series: 'http_request_duration_seconds_bucket{handler="/api/v1/fotos/buscar-rosto",method="POST",le="+Inf"}'
+        values: 0+1x40
+      - series: 'http_requests_total{handler="/api/v1/fotos/buscar-rosto",method="POST",status="200"}'
+        values: 0+1x40
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: alert_latencia_alta
+        exp_alerts:
+          - exp_labels:
+              handler: /api/v1/fotos/buscar-rosto
+
+  # ─────────────────────────────────────────────────────────────────
+  # alert-site-publico-down — sonda externa fim-a-fim
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: sonda externa falhando dispara mesmo com a API saudável por dentro
+    input_series:
+      - series: 'probe_success{job="blackbox-https",instance="https://argus.example.com/health"}'
+        values: 0x40
+      - series: 'up{job="argus-api",instance="api:8000"}'
+        values: 1x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_site_publico_down
+        exp_alerts:
+          - exp_labels:
+              job: blackbox-https
+              instance: https://argus.example.com/health
+      - eval_time: 10m
+        alertname: alert_api_down
+        exp_alerts: []
+
+  # ─────────────────────────────────────────────────────────────────
+  # alert-fila-arq-entupida / alert-jobs-arq-falhando
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: fila arq acumulando dispara mesmo com os dois workers vivos
+    input_series:
+      # O ponto cego que estas métricas fecham: argus_worker_alive=1 nos dois
+      # workers (processos de pé), fila crescendo sem parar, zero sinal antes.
+      - series: 'argus_arq_queue_size'
+        values: 0+10x40
+      - series: 'argus_worker_alive{worker_id="worker-1"}'
+        values: 1x40
+      - series: 'argus_worker_alive{worker_id="worker-2"}'
+        values: 1x40
+      - series: 'redis_up{job="redis"}'
+        values: 1x40
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: alert_fila_arq_entupida
+        exp_alerts:
+          - exp_labels: {}
+      - eval_time: 20m
+        alertname: alert_worker_parado
+        exp_alerts: []
+
+  - interval: 30s
+    name: fila curta nao dispara
+    input_series:
+      - series: 'argus_arq_queue_size'
+        values: 3x40
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: alert_fila_arq_entupida
+        exp_alerts: []
+
+  - interval: 30s
+    name: task falhando em loop dispara e nomeia a funcao
+    input_series:
+      - series: 'argus_arq_jobs_failed_total{function="processar_face_task"}'
+        values: 0+1x120
+      - series: 'argus_arq_jobs_completed_total{function="processar_pdf_task"}'
+        values: 0+1x120
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: alert_jobs_arq_falhando
+        exp_alerts:
+          - exp_labels:
+              function: processar_face_task
+
+  - interval: 30s
+    name: falha isolada absorvida pelo retry do arq nao dispara
+    input_series:
+      # max_tries=3: uma falha pontual gera até 3 tentativas. O limiar de 5
+      # em 30min existe para nao acordar ninguem por isso.
+      - series: 'argus_arq_jobs_failed_total{function="processar_pdf_task"}'
+        values: 0 1 2 3 3x60
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: alert_jobs_arq_falhando
+        exp_alerts: []
+
+  # ─────────────────────────────────────────────────────────────────
+  # alert-redis-memoria / alert-redis-evictions
+  # ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: redis a 97 por cento do maxmemory dispara
+    input_series:
+      - series: 'redis_memory_used_bytes{instance="redis-exporter:9121"}'
+        values: 260046848x40  # ~248MB
+      - series: 'redis_memory_max_bytes{instance="redis-exporter:9121"}'
+        values: 268435456x40  # 256MB
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_redis_memoria
+        exp_alerts:
+          - exp_labels:
+              instance: redis-exporter:9121
+  - interval: 30s
+    name: sem maxmemory configurado (dev) nao dispara nem vira NaN
+    input_series:
+      # Verificado contra o redis_exporter real: max_bytes=0 quando nao ha
+      # limite. Sem a guarda `!= 0`, used/0 viraria Inf > 90 = alerta falso.
+      - series: 'redis_memory_used_bytes{instance="redis-exporter:9121"}'
+        values: 1448208x40
+      - series: 'redis_memory_max_bytes{instance="redis-exporter:9121"}'
+        values: 0x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_redis_memoria
+        exp_alerts: []
+  - interval: 30s
+    name: uso normal de memoria nao dispara
+    input_series:
+      - series: 'redis_memory_used_bytes{instance="redis-exporter:9121"}'
+        values: 100000000x40
+      - series: 'redis_memory_max_bytes{instance="redis-exporter:9121"}'
+        values: 268435456x40
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: alert_redis_memoria
+        exp_alerts: []
+  - interval: 30s
+    name: evictions acontecendo dispara (jobs arq podem estar sendo descartados)
+    input_series:
+      - series: 'redis_evicted_keys_total{instance="redis-exporter:9121"}'
+        values: 0+3x60
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: alert_redis_evictions
+        exp_alerts:
+          - exp_labels:
+              instance: redis-exporter:9121
+  - interval: 30s
+    name: contador de evictions parado nao dispara
+    input_series:
+      - series: 'redis_evicted_keys_total{instance="redis-exporter:9121"}'
+        values: 57x80
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: alert_redis_evictions
+        exp_alerts: []

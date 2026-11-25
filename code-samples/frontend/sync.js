@@ -35,19 +35,27 @@ class SyncManager {
 
   async syncAll() {
     if (this.syncing || !navigator.onLine) return;
-
-    const pending = await getPendingSync();
-    if (pending.length === 0) return;
-
+    // Trava setada ANTES do primeiro await — se duas chamadas concorrentes
+    // (ex.: reconexão gerando vários eventos "online" em sequência) chegam
+    // aqui quase simultaneamente, só a primeira passa: a segunda vê
+    // this.syncing === true e retorna. Antes a trava só era setada depois de
+    // `await getPendingSync()`, deixando uma janela onde ambas liam os
+    // mesmos itens pendentes e rodavam _syncAbordagemComFotos em paralelo
+    // para o mesmo item, duplicando o upload das fotos.
     this.syncing = true;
-    this._notify("syncing", { total: pending.length });
 
-    // Abordagens com fotos vão pelo fluxo /abordagens/ (idempotente por client_id)
-    // para obter o id do servidor e subir a mídia — o batch não retorna esse id (#5).
-    const comFotos = pending.filter((p) => p.tipo === "abordagem" && p.fotos && p.fotos.length);
-    const semFotos = pending.filter((p) => !(p.tipo === "abordagem" && p.fotos && p.fotos.length));
-
+    let semFotos = [];
     try {
+      const pending = await getPendingSync();
+      if (pending.length === 0) return;
+
+      this._notify("syncing", { total: pending.length });
+
+      // Abordagens com fotos vão pelo fluxo /abordagens/ (idempotente por client_id)
+      // para obter o id do servidor e subir a mídia — o batch não retorna esse id (#5).
+      const comFotos = pending.filter((p) => p.tipo === "abordagem" && p.fotos && p.fotos.length);
+      semFotos = pending.filter((p) => !(p.tipo === "abordagem" && p.fotos && p.fotos.length));
+
       let synced = 0;
       let failed = 0;
 
@@ -95,13 +103,23 @@ class SyncManager {
   async _syncAbordagemComFotos(item) {
     // Recria a abordagem pelo endpoint normal (dedup por client_id no payload)
     // e sobe cada foto persistida com o id retornado pelo servidor.
+    //
+    // Pula fotos já marcadas `enviada` (tentativa anterior deste item que
+    // enviou algumas fotos e falhou antes de completar) e manda o clientId
+    // de cada foto como client_id — o backend deduplica por ele
+    // (FotoService.upload_foto), então mesmo que este retry reenvie uma foto
+    // que na verdade já tinha sido aceita (ex.: markFotoEnviada falhou por
+    // queda de rede logo após o upload), o servidor não duplica.
     try {
       const created = await api.post("/abordagens/", item.dados);
-      for (const foto of item.fotos) {
-        const extra = { tipo: foto.tipo, abordagem_id: created.id };
+      for (let i = 0; i < item.fotos.length; i++) {
+        const foto = item.fotos[i];
+        if (foto.enviada) continue;
+        const extra = { tipo: foto.tipo, abordagem_id: created.id, client_id: foto.clientId };
         if (foto.pessoa_id != null) extra.pessoa_id = foto.pessoa_id;
         if (foto.veiculo_id != null) extra.veiculo_id = foto.veiculo_id;
         await api.uploadFile("/fotos/upload", foto.blob, extra);
+        await markFotoEnviada(item.id, i);
       }
       await markSynced(item.id);
       return true;
